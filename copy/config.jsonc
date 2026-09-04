@@ -1,0 +1,10 @@
+// Aura Blur — geometry is reported live by the Quickshell observer.
+{
+  "include_namespaces": [".*"],
+  "exclude_namespaces": [
+    "omarchy-bar", "omarchy-bar-drag-ghost", "omarchy-bar-move-ghost",
+    "omarchy-background", "omarchy-dock", "omarchy-dock-edge",
+    "omarchy-keyboard-panel-dismiss", "omarchy-lock-preview"
+  ],
+  "detector": { "min_width": 48, "min_height": 32, "max_cards": 32 }
+}

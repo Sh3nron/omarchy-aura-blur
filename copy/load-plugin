@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+plugin_dir="$HOME/.config/hypr/gradual-blur"
+plugin="$plugin_dir/gradual-blur-plugin.so"
+expected="$(<"$plugin_dir/hyprland-abi")"
+actual="$(hyprctl version -j | jq -r '.commit // .hash // empty')"
+
+if [[ -z "$actual" || "$actual" != "$expected" ]]; then
+  notify-send -u critical "Aura Blur disabled" \
+    "Hyprland changed; run gradual-blur-handoff/install.sh to rebuild the ABI-sensitive plugin."
+  exit 1
+fi
+
+hyprctl plugin load "$plugin" >/dev/null 2>&1 || {
+  hyprctl plugin list 2>/dev/null | grep -Fq "$plugin" && exit 0
+  notify-send -u critical "Aura Blur disabled" "The compositor plugin could not be loaded."
+  exit 1
+}
