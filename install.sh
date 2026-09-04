@@ -4,8 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OBSERVER_DIR="$ROOT_DIR/observer"
 COMPOSITOR_DIR="$ROOT_DIR/compositor"
-OBSERVER_BUILD="${TMPDIR:-/tmp}/gradual-blur-observer-build"
-COMPOSITOR_BUILD="${TMPDIR:-/tmp}/gradual-blur-compositor-build"
+BUILD_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/aura-blur-build.XXXXXX")"
+OBSERVER_BUILD="$BUILD_ROOT/observer"
+COMPOSITOR_BUILD="$BUILD_ROOT/compositor"
 BLUR_DIR="$HOME/.config/hypr/gradual-blur"
 PLUGIN_ID="io.github.sh3nron.aura-blur"
 PLUGIN_DIR="$HOME/.config/omarchy/plugins/$PLUGIN_ID"
@@ -17,6 +18,11 @@ BINDINGS="$HOME/.config/hypr/bindings.lua"
 NATIVE_CONFIG="$HOME/.config/hypr/gradual-blur.lua"
 STAMP="$(date +%Y%m%d%H%M%S)"
 BACKUP_DIR="$HOME/.local/state/aura-blur/setup-backups/$STAMP"
+
+cleanup_build() {
+  [[ "$BUILD_ROOT" == "${TMPDIR:-/tmp}"/aura-blur-build.* ]] && rm -rf -- "$BUILD_ROOT"
+}
+trap cleanup_build EXIT
 
 for command in cmake ninja jq python3 pkg-config hyprctl; do
   command -v "$command" >/dev/null || { echo "Missing required command: $command" >&2; exit 1; }
