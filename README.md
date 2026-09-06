@@ -42,8 +42,8 @@ smoothly away in every direction — like a halo of frosted light.
 ## Requirements
 
 - Omarchy Quattro with Hyprland and the Omarchy shell
-- `hyprland`, `quickshell`, `qt6-declarative`, `cmake`, `ninja`, `gcc`,
-  `pkgconf`, and `json-c`
+- `hyprland`, `quickshell`, `cmake`, `ninja`, `gcc`, `pkgconf`, and `json-c`
+  (`quickshell` already provides the Qt6 runtime and development files)
 - Hyprland development headers matching the running compositor
 
 Aura Blur includes an ABI-sensitive Hyprland plugin, so setup compiles it
