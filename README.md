@@ -10,6 +10,13 @@ smoothly away in every direction — like a halo of frosted light.
 
 ![Aura Blur preview](preview.png)
 
+*The Omarchy launcher with its blur halo over Hacker News.*
+
+![Aura Blur calendar](calendar.png)
+
+*The bar clock's calendar popup — strongest at the panel edge, fading
+smoothly until the page underneath is fully sharp.*
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-3daee9.svg)](LICENSE)
 [![Hyprland](https://img.shields.io/badge/Hyprland-render%20plugin-cba6f7.svg)](https://hyprland.org)
 [![Omarchy](https://img.shields.io/badge/Omarchy-Quattro%20plugin-50fa7b.svg)](https://omarchy.org)
