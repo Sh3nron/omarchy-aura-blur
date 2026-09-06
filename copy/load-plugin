@@ -8,7 +8,7 @@ actual="$(hyprctl version -j | jq -r '.commit // .hash // empty')"
 
 if [[ -z "$actual" || "$actual" != "$expected" ]]; then
   notify-send -u critical "Aura Blur disabled" \
-    "Hyprland changed; run gradual-blur-handoff/install.sh to rebuild the ABI-sensitive plugin."
+    "Hyprland changed; rebuild with: ~/.config/omarchy/plugins/io.github.sh3nron.aura-blur/setup.sh"
   exit 1
 fi
 

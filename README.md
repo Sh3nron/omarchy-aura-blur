@@ -1,13 +1,43 @@
+<div align="center">
+
 # Aura Blur
 
-Aura Blur adds a continuous, high-quality radial blur around Omarchy popups,
-panels, notifications, and OSDs. Blur is strongest at the real rounded edge of
-each surface and fades smoothly in every direction.
+**A continuous, high-quality gradual blur that surrounds Omarchy popups,
+panels, notifications, and OSDs.**
 
-It uses Hyprland's live compositor framebuffer. It does **not** capture the
-desktop, cache screenshots, or rasterize the background. Application content
-is blurred before Omarchy renders its menu bar and overlay surfaces, keeping
-the bar, popup content, and screenshot selector sharp.
+Blur is strongest at the real rounded edge of every surface and fades
+smoothly away in every direction — like a halo of frosted light.
+
+![Aura Blur preview](preview.png)
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-3daee9.svg)](LICENSE)
+[![Hyprland](https://img.shields.io/badge/Hyprland-render%20plugin-cba6f7.svg)](https://hyprland.org)
+[![Omarchy](https://img.shields.io/badge/Omarchy-Quattro%20plugin-50fa7b.svg)](https://omarchy.org)
+[![Version](https://img.shields.io/badge/version-1.0.0-fab387.svg)]()
+
+[Features](#features) · [Install](#install) · [Update](#update) ·
+[Remove](#remove) · [Troubleshooting](#troubleshooting) ·
+[How it works](#how-it-works)
+
+</div>
+
+---
+
+## Features
+
+- **True gradual falloff** — one continuous two-axis matte computed from each
+  surface's real rounded edge. No rings, no banding, no stepped halos.
+- **Live, not faked** — blurs Hyprland's live compositor framebuffer through
+  the native three-pass blur pipeline. No screenshots, no cached desktop
+  images, no rasterization.
+- **The right things stay sharp** — application content is blurred before
+  Omarchy renders its menu bar, popup contents, and overlay surfaces, so the
+  bar, popup text, and the screenshot selector are never degraded.
+- **ABI-guarded** — a stamp tied to the exact running Hyprland commit refuses
+  to load a stale build and notifies you instead of risking a compositor
+  crash.
+- **Clean by design** — creates no Wayland surface, accepts no pointer or
+  keyboard input, never uses `sudo`, and never touches `/usr/share/omarchy`.
 
 ## Requirements
 
@@ -16,24 +46,22 @@ the bar, popup content, and screenshot selector sharp.
   `pkgconf`, and `json-c`
 - Hyprland development headers matching the running compositor
 
-Aura Blur includes an ABI-sensitive Hyprland plugin. The setup script compiles
-it locally against the installed Hyprland headers; no prebuilt compositor
-binary is downloaded or executed.
+Aura Blur includes an ABI-sensitive Hyprland plugin, so setup compiles it
+locally against your installed headers. No prebuilt compositor binary is
+downloaded or executed.
 
 ## Install
 
-Add the repository without enabling it first, then run the reviewed setup
-script:
+Add the plugin, then run its reviewed setup script:
 
 ```sh
 omarchy plugin add https://github.com/Sh3nron/omarchy-aura-blur.git
 ~/.config/omarchy/plugins/io.github.sh3nron.aura-blur/setup.sh
 ```
 
-The setup script builds both native components, creates timestamped backups,
-installs user-owned files under `~/.config`, enables the service, reloads
-Hyprland, and restarts the Omarchy shell. It never uses `sudo` and never edits
-`/usr/share/omarchy`.
+Setup builds both native components, creates timestamped backups, installs
+user-owned files under `~/.config`, enables the service, reloads Hyprland,
+and restarts the Omarchy shell.
 
 ## Update
 
@@ -45,31 +73,57 @@ omarchy plugin update io.github.sh3nron.aura-blur
 ~/.config/omarchy/plugins/io.github.sh3nron.aura-blur/setup.sh
 ```
 
-An ABI guard refuses to load an outdated build and displays a notification
-instead of risking a compositor crash.
-
 ## Remove
 
-Run the cleanup before deleting the marketplace checkout:
+Clean up the runtime before deleting the checkout:
 
 ```sh
 ~/.config/omarchy/plugins/io.github.sh3nron.aura-blur/uninstall.sh
 omarchy plugin remove io.github.sh3nron.aura-blur
 ```
 
-The cleanup unloads the compositor plugin, removes only Aura Blur's runtime and
-Hyprland configuration, removes its exact user-config entries, reloads the
-desktop, and preserves a timestamped backup.
+Uninstall unloads the compositor plugin, removes only Aura Blur's runtime
+and Hyprland configuration entries, reloads the desktop, and preserves a
+timestamped backup.
+
+Backups live under `~/.local/state/aura-blur/`.
+
+## Troubleshooting
+
+**"Aura Blur disabled — Hyprland changed"**
+The compositor was updated and the plugin ABI no longer matches. Run the
+[update](#update) commands to rebuild; the guard intentionally blocks loading
+an outdated binary.
+
+**Blur appears on something it shouldn't (or is missing)**
+The observer's namespace filter is user-editable at
+`~/.config/hypr/gradual-blur/config.jsonc`. Add or remove entries under
+`exclude_namespaces`, then run `omarchy restart shell`.
+
+**Adjusting blur quality**
+The quality profile lives at `~/.config/hypr/gradual-blur.lua`. It ships
+tuned (`size = 6`, `passes = 3`, `noise = 0`) for the cleanest falloff;
+changing it changes the look of the effect everywhere.
 
 ## How it works
 
-A native Qt observer reports exact live popup geometry over a local Unix
-socket. An ABI-matched Hyprland render-pass plugin applies native three-pass
-blur through a continuous rounded-distance matte after application windows and
-before Top/Overlay layers. The matte underlaps each popup slightly to avoid an
-unblurred seam along antialiased edges.
+A native Qt/Quickshell observer watches Omarchy's shell surfaces and reports
+exact live popup geometry — rectangles, corner radii, output names, and
+opacity — over a local Unix socket. At Hyprland's `RENDER_POST_WINDOWS`
+stage, a custom render-pass plugin:
 
-See [HANDOFF.md](HANDOFF.md) for rendering and damage-tracking details.
+1. blurs the live compositor framebuffer with Hyprland's native three-pass
+   blur;
+2. computes one smooth two-axis falloff from each real rounded card edge;
+3. composites the blurred texture through that matte; and
+4. lets Hyprland render Top and Overlay layers afterward, so the menu bar,
+   popup content, and screenshot UI stay pixel-sharp on top.
+
+The matte is quarter-resolution scalar opacity with linear GPU sampling, and
+deliberately underlaps each card slightly so antialiased edges never reveal
+an unblurred seam. The plugin also declares its live-blur needs to Hyprland
+so partial redraws repaint underlying application pixels before they are
+sampled — preventing wallpaper colors from leaking into blurred regions.
 
 ## License
 

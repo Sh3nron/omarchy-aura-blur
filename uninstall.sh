@@ -38,11 +38,13 @@ lines = [line for line in lines
 path.write_text("\n".join(lines).rstrip() + "\n")
 PY
 
-shell_tmp="$(mktemp "${TMPDIR:-/tmp}/aura-blur-shell.XXXXXX")"
-jq --arg id "$PLUGIN_ID" '.plugins = [(.plugins // [])[] | select(.id != $id)]' \
-  "$SHELL_CONFIG" > "$shell_tmp"
-install -m 644 "$shell_tmp" "$SHELL_CONFIG"
-rm -f "$shell_tmp"
+omarchy plugin disable "$PLUGIN_ID" >/dev/null 2>&1 || {
+  shell_tmp="$(mktemp "${TMPDIR:-/tmp}/aura-blur-shell.XXXXXX")"
+  jq --arg id "$PLUGIN_ID" '.plugins = [(.plugins // [])[] | select(.id != $id)]' \
+    "$SHELL_CONFIG" > "$shell_tmp"
+  install -m 644 "$shell_tmp" "$SHELL_CONFIG"
+  rm -f "$shell_tmp"
+}
 
 [[ "$BLUR_DIR" == "$HOME/.config/hypr/gradual-blur" ]] || {
   echo "Refusing unexpected runtime path: $BLUR_DIR" >&2
