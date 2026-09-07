@@ -2,6 +2,7 @@
 
 #include <QByteArray>
 #include <QJsonArray>
+#include <QList>
 #include <QObject>
 #include <QPointer>
 #include <QRectF>
@@ -55,7 +56,10 @@ private:
     qreal effectiveOpacity(QQuickItem* item) const;
     void collectCandidates(QQuickItem* item, QQuickWindow* window, int depth,
                            QList<Candidate>& out) const;
-    QJsonArray cardsFor(QQuickWindow* window, const QString& name) const;
+    QJsonArray cardsFor(QQuickWindow* window, const QString& name);
+    void watchWindow(QQuickWindow* window);
+    void watchItemChain(QQuickItem* item);
+    void schedulePublish();
     void loadConfig();
     void publish(const QByteArray& payload);
 
@@ -67,6 +71,9 @@ private:
     QByteArray m_lastPayload;
     quint64 m_generation = 0;
     QSet<QString> m_excluded;
+    QList<QPointer<QQuickWindow>> m_watchedWindows;
+    QList<QPointer<QQuickItem>> m_watchedItems;
+    bool m_publishScheduled = false;
     int m_minWidth = 48;
     int m_minHeight = 32;
     int m_maxCards = 32;

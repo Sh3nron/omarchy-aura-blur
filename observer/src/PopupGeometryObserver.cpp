@@ -7,12 +7,14 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLocalSocket>
+#include <QMetaObject>
 #include <QMetaProperty>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QRegularExpression>
 #include <QScreen>
 #include <QStandardPaths>
+#include <QWindow>
 
 #include <algorithm>
 
@@ -186,7 +188,54 @@ void PopupGeometryObserver::collectCandidates(QQuickItem* item, QQuickWindow* wi
     for (auto* child : item->childItems()) collectCandidates(child, window, depth + 1, out);
 }
 
-QJsonArray PopupGeometryObserver::cardsFor(QQuickWindow* window, const QString& name) const {
+// Push-based live tracking: geometry or visibility changes on a detected
+// card, any of its ancestors, or its window are published the same event
+// loop pass. The periodic scan stays only as a structural net for new
+// windows and items that no signal could announce.
+void PopupGeometryObserver::schedulePublish() {
+    if (m_publishScheduled) return;
+    m_publishScheduled = true;
+    QMetaObject::invokeMethod(this, [this] {
+        m_publishScheduled = false;
+        scan();
+    }, Qt::QueuedConnection);
+}
+
+void PopupGeometryObserver::watchWindow(QQuickWindow* window) {
+    if (!window) return;
+    for (const auto& watched : m_watchedWindows)
+        if (watched.data() == window) return;
+    m_watchedWindows.push_back(window);
+    const auto notify = [this] { schedulePublish(); };
+    connect(window, &QWindow::xChanged, this, notify);
+    connect(window, &QWindow::yChanged, this, notify);
+    connect(window, &QWindow::widthChanged, this, notify);
+    connect(window, &QWindow::heightChanged, this, notify);
+    connect(window, &QWindow::visibleChanged, this, notify);
+}
+
+void PopupGeometryObserver::watchItemChain(QQuickItem* item) {
+    for (auto* current = item; current; current = current->parentItem()) {
+        bool known = false;
+        for (const auto& watched : m_watchedItems)
+            if (watched.data() == current) { known = true; break; }
+        if (!known) {
+            m_watchedItems.push_back(current);
+            const auto notify = [this] { schedulePublish(); };
+            connect(current, &QQuickItem::xChanged, this, notify);
+            connect(current, &QQuickItem::yChanged, this, notify);
+            connect(current, &QQuickItem::widthChanged, this, notify);
+            connect(current, &QQuickItem::heightChanged, this, notify);
+            connect(current, &QQuickItem::visibleChanged, this, notify);
+            connect(current, &QQuickItem::visibleChildrenChanged, this, notify);
+            connect(current, &QQuickItem::opacityChanged, this, notify);
+            connect(current, &QQuickItem::parentChanged, this, notify);
+            connect(current, &QQuickItem::windowChanged, this, notify);
+        }
+    }
+}
+
+QJsonArray PopupGeometryObserver::cardsFor(QQuickWindow* window, const QString& name) {
     QList<Candidate> all;
     collectCandidates(window->contentItem(), window, 0, all);
 
@@ -208,6 +257,9 @@ QJsonArray PopupGeometryObserver::cardsFor(QQuickWindow* window, const QString& 
     std::sort(outer.begin(), outer.end(), [](const Candidate& a, const Candidate& b) {
         return a.depth < b.depth;
     });
+
+    for (const auto& candidate : outer)
+        watchItemChain(candidate.item.data());
 
     QJsonArray cards;
     const auto screenName = window->screen() ? window->screen()->name() : QString();
@@ -240,6 +292,9 @@ void PopupGeometryObserver::publish(const QByteArray& payload) {
 }
 
 void PopupGeometryObserver::scan() {
+    m_watchedWindows.removeIf([](const QPointer<QQuickWindow>& watched) { return watched.isNull(); });
+    m_watchedItems.removeIf([](const QPointer<QQuickItem>& watched) { return watched.isNull(); });
+
     QJsonArray cards;
     bool anyEligibleWindow = false;
     for (auto* baseWindow : QGuiApplication::allWindows()) {
@@ -253,6 +308,7 @@ void PopupGeometryObserver::scan() {
         if (name.isEmpty()) name = "quickshell-popup";
         if (isExcluded(name)) continue;
         anyEligibleWindow = true;
+        watchWindow(window);
         const auto found = cardsFor(window, name);
         for (const auto& card : found) cards.push_back(card);
     }

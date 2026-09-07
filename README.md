@@ -20,7 +20,7 @@ smoothly until the page underneath is fully sharp.*
 [![License: MIT](https://img.shields.io/badge/License-MIT-3daee9.svg)](LICENSE)
 [![Hyprland](https://img.shields.io/badge/Hyprland-render%20plugin-cba6f7.svg)](https://hyprland.org)
 [![Omarchy](https://img.shields.io/badge/Omarchy-Quattro%20plugin-50fa7b.svg)](https://omarchy.org)
-[![Version](https://img.shields.io/badge/version-1.0.0-fab387.svg)]()
+[![Version](https://img.shields.io/badge/version-1.0.1-fab387.svg)]()
 
 [Features](#features) · [Install](#install) · [Update](#update) ·
 [Remove](#remove) · [Troubleshooting](#troubleshooting) ·

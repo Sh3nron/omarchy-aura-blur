@@ -89,6 +89,15 @@ omarchy plugin enable "$PLUGIN_ID" >/dev/null 2>&1 || {
 }
 
 hyprctl eval 'hl.config({ decoration = { screen_shader = "" } })' >/dev/null || true
+
+# Take the shell down before unloading the previous build: a connected
+# geometry observer can make the compositor's plugin-unload path hang, and
+# older server builds had no receive timeout on their client socket. With the
+# observer disconnected the unload is always quick and clean.
+pkill -x quickshell >/dev/null 2>&1 || true
+sleep 0.5
+hyprctl plugin unload "$BLUR_DIR/gradual-blur-plugin.so" >/dev/null 2>&1 || true
+
 hyprctl reload >/dev/null
 "$BLUR_DIR/load-plugin"
 omarchy restart shell >/dev/null

@@ -1,16 +1,21 @@
 #include <hyprland/src/plugins/PluginAPI.hpp>
+#include <hyprland/src/debug/log/Logger.hpp>
 #include <hyprland/src/event/EventBus.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/render/pass/PassElement.hpp>
 #include <hyprland/src/render/pass/TextureMatteElement.hpp>
 #include <hyprland/src/state/MonitorState.hpp>
+#include <hyprland/src/managers/eventLoop/EventLoopManager.hpp>
+#include <hyprland/src/SharedDefs.hpp>
 #include <json-c/json.h>
 
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <cmath>
 #include <cstdlib>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -44,10 +49,12 @@ struct MaskResource {
 
 std::mutex cardsMutex;
 std::vector<Card> cards;
+std::set<std::string> dirtyOutputs;
 std::atomic<uint64_t> generation = 1;
 std::jthread serverThread;
 std::string socketPath;
-CHyprSignalListener renderListener, tickListener;
+int wakeRead = -1, wakeWrite = -1;
+CHyprSignalListener renderListener;
 std::unordered_map<std::string, MaskResource> masks;
 
 float roundedDistance(float px, float py, const Card& c) {
@@ -55,6 +62,16 @@ float roundedDistance(float px, float py, const Card& c) {
     const float qx = std::abs(px - (c.x + c.w * .5F)) - (c.w * .5F - radius);
     const float qy = std::abs(py - (c.y + c.h * .5F)) - (c.h * .5F - radius);
     return std::hypot(std::max(qx, 0.F), std::max(qy, 0.F)) + std::min(std::max(qx, qy), 0.F) - radius;
+}
+
+bool sameCards(const std::vector<Card>& a, const std::vector<Card>& b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i) {
+        const auto& x = a[i];
+        const auto& y = b[i];
+        if (x.output != y.output || x.x != y.x || x.y != y.y || x.w != y.w || x.h != y.h || x.radius != y.radius || x.opacity != y.opacity) return false;
+    }
+    return true;
 }
 
 std::vector<Card> cardsFor(const std::string& output) {
@@ -160,12 +177,62 @@ class CGradualBlurElement final : public IPassElement {
     std::vector<Card> m_cards;
 };
 
+// Main thread (dispatcher or exit): repaint every monitor whose card set
+// changed. Full-monitor damage is required because the compositor's cached
+// framebuffer outside a partial damage region still has the previous blur
+// baked in — anything less leaves ghost halos behind on shrink.
+void drainAndDamage() {
+    std::set<std::string> dirty;
+    {
+        std::scoped_lock lock(cardsMutex);
+        dirty.swap(dirtyOutputs);
+    }
+    if (dirty.empty()) return;
+    const bool all = dirty.count("") > 0;
+    dirty.erase("");
+    for (const auto& monitor : State::monitorState()->monitors()) {
+        if (!monitor || monitor->isMirror()) continue;
+        if (all || dirty.contains(monitor->m_name)) g_pHyprRenderer->damageMonitor(monitor);
+    }
+}
+
+// Server thread only: nudge the main loop. Waking Hyprland through its own
+// pipe fd is the thread-safe way to get main-thread work scheduled the
+// moment new geometry arrives; writes are atomic and coalesce freely.
+void requestWakeup() {
+    if (wakeWrite < 0) return;
+    if (::write(wakeWrite, "w", 1) < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {}
+}
+
+// Main thread: registered through Hyprland's own event loop (doOnReadable).
+// The waiter is one-shot; re-arm after every fire. On plugin exit we close
+// the write end, which hangs the pipe up — Hyprland then discards the waiter
+// through onFdReadableFail without ever calling our code, so nothing can
+// touch this library after it is unloaded.
+void armWakeup();
+
+void onWakeup() {
+    char drain[64];
+    while (::read(wakeRead, drain, sizeof(drain)) > 0) {}
+    drainAndDamage();
+    armWakeup();
+}
+
+void armWakeup() {
+    if (wakeRead < 0 || !g_pEventLoopManager) return;
+    g_pEventLoopManager->doOnReadable(Hyprutils::OS::CFileDescriptor(::dup(wakeRead)), onWakeup);
+}
+
 void setCards(std::vector<Card> next) {
     {
         std::scoped_lock lock(cardsMutex);
+        if (sameCards(cards, next)) return;
+        for (const auto& card : cards) dirtyOutputs.insert(card.output);
+        for (const auto& card : next) dirtyOutputs.insert(card.output);
         cards = std::move(next);
     }
-    generation.fetch_add(1);
+    generation.fetch_add(1, std::memory_order_release);
+    requestWakeup();
 }
 
 void serve(std::stop_token stop) {
@@ -187,11 +254,20 @@ void serve(std::stop_token stop) {
         if (::select(server + 1, &fds, nullptr, nullptr, &wait) <= 0) continue;
         const int client = ::accept4(server, nullptr, nullptr, SOCK_CLOEXEC);
         if (client < 0) continue;
+        // accept() does not inherit timeouts: set them on the client socket
+        // explicitly, otherwise a stop request would hang on a blocking recv.
+        timeval clientTimeout{0, 250000};
+        ::setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &clientTimeout, sizeof(clientTimeout));
+        ::setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &clientTimeout, sizeof(clientTimeout));
         std::string pending;
         char buffer[8192];
         while (!stop.stop_requested()) {
             const auto count = ::recv(client, buffer, sizeof(buffer), 0);
-            if (count <= 0) break;
+            if (count == 0) break; // orderly client disconnect
+            if (count < 0) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) continue; // idle, keep the connection
+                break;
+            }
             pending.append(buffer, static_cast<size_t>(count));
             size_t newline;
             while ((newline = pending.find('\n')) != std::string::npos) {
@@ -233,6 +309,12 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     PHANDLE = handle;
     const char* runtime = std::getenv("XDG_RUNTIME_DIR");
     socketPath = std::string(runtime ? runtime : "/tmp") + "/gradual-blur.sock";
+    int fds[2] = {-1, -1};
+    if (::pipe2(fds, O_CLOEXEC | O_NONBLOCK) == 0) {
+        wakeRead  = fds[0];
+        wakeWrite = fds[1];
+        armWakeup();
+    }
     renderListener = Event::bus()->m_events.render.stage.listen([](eRenderStage stage) {
         if (stage != RENDER_POST_WINDOWS) return;
         auto monitor = g_pHyprRenderer->m_renderData.pMonitor.lock();
@@ -240,19 +322,24 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         auto current = cardsFor(monitor->m_name);
         if (!current.empty()) g_pHyprRenderer->currentPass().add(makeUnique<CGradualBlurElement>(monitor, std::move(current)));
     });
-    tickListener = Event::bus()->m_events.tick.listen([] {
-        static uint64_t seen = 0;
-        const auto now = generation.load();
-        if (now == seen) return;
-        seen = now;
-        for (const auto& monitor : State::monitorState()->monitors()) g_pHyprRenderer->damageMonitor(monitor);
-    });
     serverThread = std::jthread(serve);
-    return {"aura-blur", "Continuous live radial blur behind shell popups", "Yeshuah Franco", "1.0.0"};
+    return {"aura-blur", "Continuous live radial blur behind shell popups", "Yeshuah Franco", "1.0.1"};
 }
 
 APICALL EXPORT void PLUGIN_EXIT() {
-    renderListener.reset(); tickListener.reset();
     if (serverThread.joinable()) { serverThread.request_stop(); serverThread.join(); }
-    masks.clear(); setCards({});
+    renderListener.reset();
+    if (wakeWrite >= 0) { ::close(wakeWrite); wakeWrite = -1; } // hang up: discards any armed waiter without running it
+    if (wakeRead >= 0) { ::close(wakeRead); wakeRead = -1; }
+    masks.clear();
+    {
+        std::scoped_lock lock(cardsMutex);
+        cards.clear();
+        dirtyOutputs.clear();
+    }
+    generation.fetch_add(1);
+    // We are on the main thread here; repaint once without blur so a stale
+    // matte never outlives the plugin.
+    for (const auto& monitor : State::monitorState()->monitors())
+        if (monitor && !monitor->isMirror()) g_pHyprRenderer->damageMonitor(monitor);
 }

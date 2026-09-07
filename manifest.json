@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.sh3nron.aura-blur",
   "name": "Aura Blur",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Yeshuah Franco",
   "license": "MIT",
   "description": "Adds a continuous, high-quality radial blur around Omarchy popups and OSDs.",
