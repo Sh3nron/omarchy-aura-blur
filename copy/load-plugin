@@ -12,8 +12,10 @@ if [[ -z "$actual" || "$actual" != "$expected" ]]; then
   exit 1
 fi
 
-hyprctl plugin load "$plugin" >/dev/null 2>&1 || {
-  hyprctl plugin list 2>/dev/null | grep -Fq "$plugin" && exit 0
+if ! hyprctl plugin load "$plugin" >/dev/null 2>&1 \
+  || ! hyprctl plugin list -j 2>/dev/null | jq -e '.[] | select(.name == "aura-blur")' >/dev/null; then
+  # hyprctl may exit 0 even when loading fails; verify via the JSON plugin
+  # list that the plugin is actually registered before declaring success.
   notify-send -u critical "Aura Blur disabled" "The compositor plugin could not be loaded."
   exit 1
-}
+fi
