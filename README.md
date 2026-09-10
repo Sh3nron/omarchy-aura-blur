@@ -102,6 +102,15 @@ The compositor was updated and the plugin ABI no longer matches. Run the
 [update](#update) commands to rebuild; the guard intentionally blocks loading
 an outdated binary.
 
+**v1.0.x prone to silently staying disabled after an update (fixed in 1.0.2)**
+Older builds linked Hyprland's dependency tree, so the `.so` carried hard
+`NEEDED` sonames (e.g. `libaquamarine.so.13`) that broke whenever a
+dependency package updated — and `hyprctl plugin load` exits 0 even on
+failure, so the loader reported success while the plugin stayed unloaded.
+v1.0.2 rebuilds with the correct linking model (compositor symbols resolved
+at load time; only stable external libs — e.g. json-c — are linked) and the
+loader now verifies via `hyprctl plugin list -j`. Run the update commands.
+
 **Blur appears on something it shouldn't (or is missing)**
 The observer's namespace filter is user-editable at
 `~/.config/hypr/gradual-blur/config.jsonc`. Add or remove entries under
